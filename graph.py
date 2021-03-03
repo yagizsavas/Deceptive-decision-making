@@ -80,7 +80,6 @@ class Graph(object):
         dist[src] = 0
 
         for vertex in self.V:
-        	print("stuffknskjlksjdflksjdf")
 
             # Pick the minimum distance vertex from
             # the set of vertices not yet processed.
