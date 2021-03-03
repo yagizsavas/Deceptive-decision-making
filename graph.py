@@ -86,7 +86,7 @@ class Graph(object):
             # Pick the minimum distance vertex from
             # the set of vertices not yet processed.
             # u is always equal to src in first iteration
-            u = self.minDistance(dist, sptSet)
+            p = self.minDistance(dist, sptSet)
 
             # Put the minimum distance vertex in the
             # shotest path tree
