@@ -9,6 +9,7 @@ import sys
 class Graph(object):
 
     def __init__(self, MDP=None):
+        print('try commit')
         self.graph = MDP
         self.V=self.vertices()
         self.succ=self.successors()
