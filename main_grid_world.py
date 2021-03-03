@@ -114,6 +114,8 @@ f.close()
 #policy_file = "grid_world_policy_1.csv"
 #simulate_Stationary(policy_file, config_file, row, column)
 
+print('testing fork')
+
 # Simulate the second policy
 policy_file = "grid_world_policy_2.csv"
 simulate_Markovian(policy_file, config_file, time_horizon, row, column)
