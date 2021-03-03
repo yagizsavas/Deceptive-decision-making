@@ -23,7 +23,7 @@ class Graph(object):
     def successors(self):
      # MDP.successors[i] gives the 'set' of successor states for the state i
         succ = {i : set() for i in self.V }
-        for pair in self.graph[0]:
+        for pair in self.graph[1]:
             succ[pair[0]].update(self.graph[1][pair][1])
         return succ
 
