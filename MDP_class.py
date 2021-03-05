@@ -379,3 +379,74 @@ class MDP(object):
                     optimal_policy[state]=action
                     opt_index = act_ind
         return min_cost_val, optimal_policy
+
+    def MILP_min_discounted_cost_max_reach(self,init,target,absorbing,cost,discount):
+        # Define initial distribution
+        alpha       = np.zeros((len(self.states()),1))
+        alpha[init] = 1
+
+        # Compute maximum reachability probability to the target set
+        max_reach_val, _ = self.compute_max_reach_value_and_policy(init,target, absorbing)
+        reach_rew        = self.reward_for_reach(target)
+
+        # Define big-M constant
+        # !!!! (assumes deterministic transitions for now) !!!!!!
+        M = len(self.states())
+
+        # Define the optimization model and the variables
+        model    = gp.Model("min_cost_value_computation")
+        lambda_1 = model.addVars(len(self.states()), len(self.actions()), lb=0.0, name='lambda_1')
+        lambda_2 = model.addVars(len(self.states()), len(self.actions()), lb=0.0, name='lambda_2')
+        Delta    = model.addVars(len(self.states()), len(self.actions()), vtype=GRB.BINARY, name='Delta')
+
+
+        occupation_1_pre, occupation_1_post      = {} , {}
+        occupation_2_pre, occupation_2_post      = {} , {}
+        sum_delta                                = {}
+        total_reach_prob, total_expected_cost    = gp.LinExpr(), gp.LinExpr()
+
+        for state in self.states():
+            occupation_1_pre[state], occupation_1_post[state] = gp.LinExpr() , gp.LinExpr()
+            occupation_2_pre[state], occupation_2_post[state] = gp.LinExpr() , gp.LinExpr()
+            sum_delta[state]                                  = gp.LinExpr()
+
+            for act_ind, act in enumerate(self.active_actions()[state]):
+
+                occupation_1_post[state].add(lambda_1[state,act_ind] , 1)
+                occupation_2_post[state].add(lambda_2[state,act_ind] , 1)
+                sum_delta[state].add(Delta[state,act_ind] , 1)
+
+                total_expected_cost.add(lambda_1[state,act_ind] , cost[(state,act)])
+                total_reach_prob.add(lambda_2[state,act_ind] , reach_rew[(state,act)])
+
+                model.addConstr(lambda_1[state,act_ind]/M <= Delta[state,act_ind])
+                model.addConstr(lambda_2[state,act_ind]/M <= Delta[state,act_ind])
+
+            model.addConstr(sum_delta[state] <= 1)
+
+            for pre in self.pre_state_action_pair()[state]:
+                trans_prob_index = self.MDP[1][pre][1].index(state)
+                act_index        = self.MDP[0][pre[0]].index(pre[1])
+
+                occupation_1_pre[state].add( lambda_1[pre[0],act_index] , self.MDP[1][pre][0][trans_prob_index])
+                occupation_2_pre[state].add( lambda_2[pre[0],act_index] , self.MDP[1][pre][0][trans_prob_index])
+
+            # Flow equation for each state
+            if state not in absorbing:
+                model.addConstr( occupation_1_post[state] - discount * occupation_1_pre[state] == alpha[state])
+                model.addConstr( occupation_2_post[state] - occupation_2_pre[state] == alpha[state])
+
+        model.addConstr( total_reach_prob >= max_reach_val)
+        model.setObjective(total_expected_cost, GRB.MINIMIZE)
+        model.optimize()
+
+
+        optimal_policy={}
+        for state in range(len(self.states())):
+            optimal_policy[state]=self.MDP[0][state][0]
+            opt_index = 0
+            for act_ind,action in enumerate(self.active_actions()[state]):
+                if Delta[state,act_ind].x >= Delta[state,opt_index].x:
+                    optimal_policy[state]=action
+                    opt_index = act_ind
+        return optimal_policy
