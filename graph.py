@@ -1,11 +1,6 @@
-### This file  1) constructs the graph representation of a given MDP
-# 2) Finds strongly connected components
-# 3) Finds maximal end components
-# 4) Given a target set, finds the states with zero reaching probability
-# 5) Given a target set, finds the states whose reachability probability is non-zero
-# 6) Checks if the graph includes non-proper policies
 import numpy as np
 import sys
+
 class Graph(object):
 
     def __init__(self, MDP=None):
@@ -16,18 +11,19 @@ class Graph(object):
         self.Time=0
 
     def vertices(self):
-        """ returns the vertices of a graph """
+    # returns the vertices of a graph
         return list(self.graph[0].keys())
 
     def successors(self):
-     # MDP.successors[i] gives the 'set' of successor states for the state i
+    # returns a dictionary object in which the keys are the vertices and the
+    # values are the set of neighboring vertices
         succ = {i : set() for i in self.V }
         for pair in self.graph[1]:
             succ[pair[0]].update(self.graph[1][pair][1])
         return succ
 
     def edges(self):
-     # MDP.successors[i] gives the 'set' of successor states for the state i
+    # returns a list object in which the elements are the edge pairs (u,v)
         edges = []
         for vertex in self.succ.keys():
             for succ in self.succ[vertex]:
@@ -36,6 +32,8 @@ class Graph(object):
 
 
     def Floyd_Warshall(self):
+    # an implementation of the Floyd_Warshall algorithm.
+    # the algorithm computes the minimum distances between any two vertices
         dist = {}
         for vertex in self.V:
             for vertex_2 in self.V:
@@ -53,9 +51,30 @@ class Graph(object):
                             dist[(i,j)] = dist[(i,k)] + dist[(k,j)]
         return dist
 
+
+    def verify_path(self, init, target):
+    # an implementation of the breadth-first-search algorithm
+    # to verify whether there is a path between the pair (init,target)
+
+        visited = [] # List to keep track of visited nodes.
+        queue = []     #Initialize a queue
+        visited.append(init)
+        queue.append(init)
+
+        while queue:
+            s = queue.pop(0)
+
+            for neighbour in self.successors()[s]:
+                if neighbour not in visited:
+                    visited.append(neighbour)
+                    queue.append(neighbour)
+                if target in visited:
+                    return True
+        return False
+
     def minDistance(self, dist, sptSet):
 
-            # Initilaize minimum distance for next node
+            # Initialize minimum distance for next node
             min = sys.maxsize
 
             # Search not nearest vertex not in the

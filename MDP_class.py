@@ -1,6 +1,7 @@
 import numpy as np
 import gurobipy as gp
 from gurobipy import GRB
+from graph import Graph
 
 
 class MDP(object):
@@ -8,36 +9,38 @@ class MDP(object):
     def __init__(self, MDP=None):
         self.MDP = MDP
 
-
     def states(self):
-    # MDP.states[i] gives the 'set' of all states
+    # returns the set of states in the MDP
         states=set(i for i in self.MDP[0])
         return states
 
     def actions(self):
-    # MDP.actions[i] gives the 'set' of all actions
+    # returns the set of actions in the MDP
         actions=set()
         for state in self.MDP[0]:
              actions.update(self.MDP[0][state])
         return actions
 
     def active_actions(self):
-    # MDP.active_actions[i] gives the 'list' of successor states for the state i
+    # returns a dictionary in which the keys are the states and the values are
+    # the list of available actions for a given state
         return self.MDP[0]
 
     def state_action_pairs(self):
-    # MDP.state_action_pairs[i] gives the 'list' of state action pairs
+    # returns a list of state action pairs in the MDP
         return self.MDP[1].keys()
 
     def successors(self):
-     # MDP.successors[i] gives the 'set' of successor states for the state i
+     # returns a dictionary in which the keys are the states and the values are
+     # the set of successor states from a given state
         succ={i : set() for i in self.states() }
         for pair in self.MDP[1]:
             succ[pair[0]].update(self.MDP[1][pair][1])
         return succ
 
     def predecessors(self):
-     # MDP.predecessors[i] gives the 'set' of predecessor states for the state i
+     # returns a dictionary in which the keys are the states and the values are
+     # the set of predecessor states from a given state
         pre={i : set() for i in self.states() }
         for pair in self.MDP[1]:
             for succ in self.MDP[1][pair][1]:
@@ -45,7 +48,8 @@ class MDP(object):
         return pre
 
     def pre_state_action_pair(self):
-     # MDP.predecessors[i] gives the 'set' of predecessor states for the state i
+     # returns a dictionary in which the keys are the states and the values are
+     # the set of predeccessor state action pairs from a given state
         pre={i : set() for i in self.states() }
         for pair in self.MDP[1]:
             for succ in self.MDP[1][pair][1]:
@@ -94,7 +98,10 @@ class MDP(object):
         reach_rew = {}
         for pair in self.MDP[1]:
             if pair[0] not in target and set(self.MDP[1][pair][1]).intersection(set(target)) != set():
-                reach_rew[pair] = 1
+                reach_rew[pair] = 0
+                for index, succ in enumerate(self.MDP[1][pair][1]):
+                    if succ in target:
+                        reach_rew[pair] = reach_rew[pair] + self.MDP[1][pair][0][index]
             else:
                 reach_rew[pair] = 0
         return reach_rew
@@ -132,41 +139,9 @@ class MDP(object):
         return goal_posteriors
 
 
-
-    def compute_residence(self,init,target,policy):
-        # Construct a reward function expressing the residence time in states
-        # Inputs:
-        # target: a 'list' of target states
-        res_times={}
-        alpha=np.zeros((len(self.states()),1))
-        alpha[init]=1
-        P=np.zeros((len(self.states()),len(self.states())))
-        I=np.eye(len(self.states()))
-        for state in self.MDP[0]:
-            opt_act=policy[state]
-            for k,succ in enumerate(self.MDP[1][(state,opt_act)][1]):
-                P[state,succ]=self.MDP[1][(state,opt_act)][0][k]
-        I=np.delete(I, target, axis=0)
-        I=np.delete(I, target, axis=1)
-        P=np.delete(P, target, axis=0)
-        P=np.delete(P, target, axis=1)
-        alpha=np.delete(alpha, target, axis=0)
-        res_partial = np.dot(np.linalg.inv(I-P.T),alpha)
-        counter = -1
-        for state in self.MDP[0]:
-            if state not in target:
-                counter += 1
-            for act in self.active_actions()[state]:
-                if state not in target and policy[state] == act:
-                    res_times[(state,act)] = float(res_partial[counter])
-                else:
-                    res_times[(state,act)] = 0
-        return res_times
-
-
-    def value_evaluate(self,reward ,policy):
+    def value_evaluate(self,reward ,policy, discount):
         Q_val, V_val_new, V_val, diff = {}, {}, {} , {}
-        eps=1e-8
+        eps=1e-4
         for pair in self.MDP[1]:
             Q_val[pair] = 0
             V_val[pair[0]], V_val_new[pair[0]] = 0,0
@@ -176,13 +151,38 @@ class MDP(object):
                 succ_sum = 0
                 for k,succ in enumerate(self.MDP[1][pair][1]):
                     succ_sum += self.MDP[1][pair][0][k]*V_val[succ]
-                Q_val[pair] = reward[pair] + succ_sum
+                Q_val[pair] = reward[pair] + discount * succ_sum
             for state in self.MDP[0]:
                 V_val_new[state] = Q_val[(state,policy[state])]
                 diff[state] = abs(V_val_new[state] - V_val[state])
                 V_val[state] = V_val_new[state]
         #    print(diff[max(diff, key=diff.get)])
         return V_val, Q_val
+
+
+    def compute_discounted_max_reach(self, init, target, discount):
+        Q_val, V_val_new, V_val, diff = {}, {}, {} , {}
+        policy = {}
+        eps=1e-4
+        reward = self.reward_for_reach(target)
+        for pair in self.MDP[1]:
+            Q_val[pair] = 0
+            V_val[pair[0]], V_val_new[pair[0]] = 0,0
+            diff[pair[0]] = 1
+        while diff[max(diff, key=diff.get)] > eps:
+            for pair in self.MDP[1]:
+                succ_sum = 0
+                for k,succ in enumerate(self.MDP[1][pair][1]):
+                    succ_sum += self.MDP[1][pair][0][k]*V_val[succ]
+                Q_val[pair] = reward[pair] + discount * succ_sum
+            for state in self.MDP[0]:
+                Q_array = [Q_val[(state,k)] for k in self.MDP[0][state]]
+                V_val_new[state] = max(Q_array)
+                opt_action_index = Q_array.index(max(Q_array))
+                policy[state] = self.active_actions()[state][opt_action_index]
+                diff[state] = abs(V_val_new[state] - V_val[state])
+                V_val[state] = V_val_new[state]
+        return V_val[init],policy
 
     def soft_max_val_iter(self, reward, goal, discount):
         V_val_new, V_val, diff = {}, {}, {}
@@ -226,7 +226,7 @@ class MDP(object):
             diff = np.exp(min_val - max_val)
         return max_val + np.log(1+diff)
 
-    def compute_max_reach_value_and_policy(self,init, target, absorbing):
+    def compute_max_reach_value_and_policy(self,init, target, absorbing, discount = 1):
      # MDP.compute_max_reach_value_and_policy(init,target) returns
      # (i) the maximum reachability probability to a 'list' of target states from an initial state,
      # (ii) a PROPER policy that maximizes the reachability probability
@@ -270,8 +270,8 @@ class MDP(object):
 
             # Flow equation for each state
             if state not in absorbing:
-                m.addConstr( post_lambda_sum[state] - pre_lambda_sum[state] == alpha[state])
-                m2.addConstr( post_lambda_sum2[state] - pre_lambda_sum2[state] == alpha[state])
+                m.addConstr( post_lambda_sum[state] - discount * pre_lambda_sum[state] == alpha[state])
+                m2.addConstr( post_lambda_sum2[state] - discount * pre_lambda_sum2[state] == alpha[state])
 
         m.setObjective(total_reach_prob, GRB.MAXIMIZE)
         m.optimize()
@@ -283,7 +283,7 @@ class MDP(object):
                 act_ind = self.MDP[0][state].index(action)
                 if X[state,act_ind].x >= 1e-4:
                     policy[state] = action
-        V_val,_=self.value_evaluate(reach_rew,policy)
+        V_val,_=self.value_evaluate(reach_rew,policy, discount)
         max_reach_val=V_val[init]
 
         m2.addConstr( total_reach_prob2 >= max_reach_val)
@@ -299,7 +299,7 @@ class MDP(object):
 
         return max_reach_val, optimal_policy
 
-    def compute_min_cost_subject_to_max_reach(self,init,target,absorbing, cost):
+    def compute_min_cost_subject_to_max_reach(self,init,target,absorbing, cost, discount = 1):
      # MDP.compute_max_reach_value_and_policy(init,target) returns
      # (i) the minimum cost to reach a 'list' of target states with maximum probability,
      # (ii) a policy that minimizes the expected total cost while maximizing the reachability probability
@@ -313,9 +313,9 @@ class MDP(object):
         alpha[init] = 1
 
         # Compute maximum reachability probability to the target set
-        max_reach_val, _ = self.compute_max_reach_value_and_policy(init,target, absorbing)
+        max_reach_val, _ = self.compute_max_reach_value_and_policy(init,target, absorbing, discount)
         reach_rew=self.reward_for_reach(target)
-        #print(max_reach_val)
+        print(max_reach_val)
         # The following optimization problem is known as the 'dual program'.
         # The variables X(s,a) represent the expected residence time in pair (s,a)
         m = gp.Model("min_cost_value_computation")
@@ -353,8 +353,8 @@ class MDP(object):
 
             # Flow equation for each state
             if state not in absorbing:
-                m.addConstr( post_lambda_sum[state] - pre_lambda_sum[state] == alpha[state])
-                m2.addConstr( post_lambda_sum2[state] - pre_lambda_sum2[state] == alpha[state])
+                m.addConstr( post_lambda_sum[state] - discount * pre_lambda_sum[state] == alpha[state])
+                m2.addConstr( post_lambda_sum2[state] - discount * pre_lambda_sum2[state] == alpha[state])
 
         m.addConstr( total_reach_prob >= max_reach_val)
         #m.addConstr( total_expected_time <= 70)
@@ -368,16 +368,27 @@ class MDP(object):
         m2.addConstr( total_reach_prob2 >= max_reach_val)
         m2.setObjective( total_expected_time2, GRB.MINIMIZE)
         m2.optimize()
+        if discount == 1:
+            optimal_policy={}
+            for state in range(len(self.states())):
+                optimal_policy[state]=self.MDP[0][state][0]
+                opt_index = 0
+                for action in self.active_actions()[state]:
+                    act_ind = self.MDP[0][state].index(action)
+                    if X2[state,act_ind].x >= X2[state,opt_index].x:
+                        optimal_policy[state]=action
+                        opt_index = act_ind
+        else:
+            optimal_policy={}
+            for state in range(len(self.states())):
+                optimal_policy[state]=self.MDP[0][state][0]
+                opt_index = 0
+                for action in self.active_actions()[state]:
+                    act_ind = self.MDP[0][state].index(action)
+                    if X[state,act_ind].x >= X[state,opt_index].x:
+                        optimal_policy[state]=action
+                        opt_index = act_ind
 
-        optimal_policy={}
-        for state in range(len(self.states())):
-            optimal_policy[state]=self.MDP[0][state][0]
-            opt_index = 0
-            for action in self.active_actions()[state]:
-                act_ind = self.MDP[0][state].index(action)
-                if X2[state,act_ind].x >= X2[state,opt_index].x:
-                    optimal_policy[state]=action
-                    opt_index = act_ind
         return min_cost_val, optimal_policy
 
     def MILP_min_discounted_cost_max_reach(self,init,target,absorbing,cost,discount):
